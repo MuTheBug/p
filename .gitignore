@@ -73,5 +73,13 @@ Thumbs.db
 # Bot specific
 *.log
 trendline_bot.log
+trading_bot.log
 trades.db
 trades.json
+
+# ML models
+models/
+*.keras
+*.h5
+*.pkl
+*.joblib
