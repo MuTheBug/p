@@ -88,6 +88,28 @@ class IncomeType(Enum):
     POSITION_LIMIT_INCREASE_FEE = "POSITION_LIMIT_INCREASE_FEE"
 
 
+class AlgoOrderType(Enum):
+    """Algo order types for conditional orders (post Dec 2025 migration)."""
+    STOP = "STOP"
+    STOP_MARKET = "STOP_MARKET"
+    TAKE_PROFIT = "TAKE_PROFIT"
+    TAKE_PROFIT_MARKET = "TAKE_PROFIT_MARKET"
+    TRAILING_STOP_MARKET = "TRAILING_STOP_MARKET"
+
+
+class VPUrgency(Enum):
+    """Urgency levels for Volume Participation (VP) orders."""
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class AlgoType(Enum):
+    """Algorithm types."""
+    TWAP = "TWAP"
+    VP = "VP"
+
+
 @dataclass
 class OrderResult:
     """Order result dataclass."""
@@ -143,6 +165,95 @@ class OrderResult:
         )
 
 
+@dataclass
+class AlgoOrderResult:
+    """Algo order result dataclass for conditional orders (post Dec 2025)."""
+    algo_id: int
+    symbol: str
+    side: str
+    position_side: str
+    quantity: str
+    order_type: str
+    stop_price: str
+    activation_price: str
+    callback_rate: str
+    working_type: str
+    price_protect: bool
+    reduce_only: bool
+    close_position: bool
+    status: str
+    triggered_price: str
+    book_time: int
+    update_time: int
+    raw_response: Dict[str, Any]
+
+    @classmethod
+    def from_response(cls, response: Dict[str, Any]) -> "AlgoOrderResult":
+        """Create AlgoOrderResult from API response."""
+        return cls(
+            algo_id=response.get("algoId", 0),
+            symbol=response.get("symbol", ""),
+            side=response.get("side", ""),
+            position_side=response.get("positionSide", ""),
+            quantity=response.get("origQty", response.get("quantity", "0")),
+            order_type=response.get("type", ""),
+            stop_price=response.get("stopPrice", "0"),
+            activation_price=response.get("activationPrice", "0"),
+            callback_rate=response.get("callbackRate", "0"),
+            working_type=response.get("workingType", ""),
+            price_protect=response.get("priceProtect", False),
+            reduce_only=response.get("reduceOnly", False),
+            close_position=response.get("closePosition", False),
+            status=response.get("status", response.get("algoStatus", "")),
+            triggered_price=response.get("triggeredPrice", "0"),
+            book_time=response.get("bookTime", 0),
+            update_time=response.get("updateTime", 0),
+            raw_response=response
+        )
+
+
+@dataclass
+class TWAPOrderResult:
+    """TWAP order result dataclass."""
+    client_algo_id: str
+    success: bool
+    code: int
+    msg: str
+    raw_response: Dict[str, Any]
+
+    @classmethod
+    def from_response(cls, response: Dict[str, Any]) -> "TWAPOrderResult":
+        """Create TWAPOrderResult from API response."""
+        return cls(
+            client_algo_id=response.get("clientAlgoId", ""),
+            success=response.get("success", False),
+            code=response.get("code", 0),
+            msg=response.get("msg", ""),
+            raw_response=response
+        )
+
+
+@dataclass
+class VPOrderResult:
+    """VP (Volume Participation) order result dataclass."""
+    client_algo_id: str
+    success: bool
+    code: int
+    msg: str
+    raw_response: Dict[str, Any]
+
+    @classmethod
+    def from_response(cls, response: Dict[str, Any]) -> "VPOrderResult":
+        """Create VPOrderResult from API response."""
+        return cls(
+            client_algo_id=response.get("clientAlgoId", ""),
+            success=response.get("success", False),
+            code=response.get("code", 0),
+            msg=response.get("msg", ""),
+            raw_response=response
+        )
+
+
 class BinanceFuturesError(Exception):
     """Custom exception for Binance Futures API errors."""
     def __init__(self, code: int, message: str):
@@ -156,10 +267,17 @@ class BinanceFuturesClient:
     Comprehensive Binance Futures Trading Client.
 
     Supports all order types and trading functionalities:
-    - Market, Limit, Stop, Take Profit, Trailing Stop orders
+    - Market, Limit orders (standard API)
+    - Stop, Take Profit, Trailing Stop orders (Algo API - post Dec 2025)
+    - TWAP (Time-Weighted Average Price) orders
+    - VP (Volume Participation) orders
     - Position management (leverage, margin type, hedge mode)
     - Account operations (balance, positions, income history)
     - Batch orders and order management
+
+    IMPORTANT: Since December 9, 2025, Binance migrated conditional orders
+    (STOP, STOP_MARKET, TAKE_PROFIT, TAKE_PROFIT_MARKET, TRAILING_STOP_MARKET)
+    to the Algo Service API. Use the algo_* methods for these order types.
 
     Args:
         api_key: Binance API key
@@ -171,22 +289,40 @@ class BinanceFuturesClient:
         >>> client = BinanceFuturesClient(api_key="your_key", api_secret="your_secret")
         >>> # Place a market buy order
         >>> order = client.market_order("BTCUSDT", OrderSide.BUY, quantity=0.01)
-        >>> # Place a limit sell order
-        >>> order = client.limit_order("BTCUSDT", OrderSide.SELL, quantity=0.01, price=50000)
+        >>> # Place a stop loss using the new Algo API
+        >>> order = client.algo_stop_market_order("BTCUSDT", OrderSide.SELL, 0.01, stop_price=39000)
+        >>> # Place a TWAP order (execute over 1 hour)
+        >>> order = client.place_twap_order("BTCUSDT", OrderSide.BUY, 1.0, duration=3600)
     """
 
     # API Base URLs
     BASE_URL = "https://fapi.binance.com"
     TESTNET_URL = "https://testnet.binancefuture.com"
+    SAPI_URL = "https://api.binance.com"  # For TWAP/VP algo orders
 
     # API Endpoints
     ENDPOINTS = {
-        # Trading
+        # Trading (Standard Orders)
         "order": "/fapi/v1/order",
         "batch_orders": "/fapi/v1/batchOrders",
         "all_open_orders": "/fapi/v1/openOrders",
         "all_orders": "/fapi/v1/allOrders",
         "cancel_all_orders": "/fapi/v1/allOpenOrders",
+
+        # Algo Orders - Conditional (post Dec 2025 migration)
+        # These endpoints handle: STOP, STOP_MARKET, TAKE_PROFIT, TAKE_PROFIT_MARKET, TRAILING_STOP_MARKET
+        "algo_order": "/fapi/v1/algoOrder",
+        "algo_open_orders": "/fapi/v1/openAlgoOrders",
+        "algo_all_orders": "/fapi/v1/allAlgoOrders",
+        "algo_cancel_all": "/fapi/v1/algoOpenOrders",
+
+        # Algo Orders - TWAP & VP (SAPI endpoints)
+        "twap_new": "/sapi/v1/algo/futures/newOrderTwap",
+        "vp_new": "/sapi/v1/algo/futures/newOrderVp",
+        "algo_cancel": "/sapi/v1/algo/futures/order",
+        "algo_sapi_open_orders": "/sapi/v1/algo/futures/openOrders",
+        "algo_sapi_historical_orders": "/sapi/v1/algo/futures/historicalOrders",
+        "algo_sapi_sub_orders": "/sapi/v1/algo/futures/subOrders",
 
         # Account
         "account": "/fapi/v2/account",
@@ -310,6 +446,56 @@ class BinanceFuturesClient:
     def _delete(self, endpoint: str, params: Optional[Dict] = None, signed: bool = True) -> Dict:
         """HTTP DELETE request."""
         return self._request("DELETE", endpoint, params, signed)
+
+    # ==================== SAPI Request Methods (for TWAP/VP) ====================
+
+    def _sapi_request(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+        signed: bool = True
+    ) -> Dict[str, Any]:
+        """Make HTTP request to Binance SAPI (for TWAP/VP algo orders)."""
+        url = f"{self.SAPI_URL}{endpoint}"
+        params = params or {}
+
+        if signed:
+            params = self._prepare_params(params)
+
+        try:
+            if method == "GET":
+                response = self.session.get(url, params=params)
+            elif method == "POST":
+                response = self.session.post(url, data=params)
+            elif method == "DELETE":
+                response = self.session.delete(url, params=params)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            result = response.json()
+
+            if response.status_code >= 400:
+                code = result.get("code", response.status_code)
+                msg = result.get("msg", "Unknown error")
+                raise BinanceFuturesError(code, msg)
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            raise BinanceFuturesError(-1, f"Request failed: {str(e)}")
+
+    def _sapi_get(self, endpoint: str, params: Optional[Dict] = None, signed: bool = True) -> Dict:
+        """HTTP GET request to SAPI."""
+        return self._sapi_request("GET", endpoint, params, signed)
+
+    def _sapi_post(self, endpoint: str, params: Optional[Dict] = None, signed: bool = True) -> Dict:
+        """HTTP POST request to SAPI."""
+        return self._sapi_request("POST", endpoint, params, signed)
+
+    def _sapi_delete(self, endpoint: str, params: Optional[Dict] = None, signed: bool = True) -> Dict:
+        """HTTP DELETE request to SAPI."""
+        return self._sapi_request("DELETE", endpoint, params, signed)
 
     # ==================== Order Placement ====================
 
@@ -1017,6 +1203,764 @@ class BinanceFuturesClient:
 
         return results
 
+    # ==================== Algo Orders (Conditional - Post Dec 2025) ====================
+    # Since December 9, 2025, Binance migrated conditional orders to the Algo Service.
+    # Order types affected: STOP_MARKET, TAKE_PROFIT_MARKET, STOP, TAKE_PROFIT, TRAILING_STOP_MARKET
+    # The old /fapi/v1/order endpoint returns error -4120 for these order types.
+
+    def place_algo_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        order_type: AlgoOrderType,
+        quantity: Optional[float] = None,
+        price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        time_in_force: Optional[TimeInForce] = None,
+        position_side: PositionSide = PositionSide.BOTH,
+        reduce_only: Optional[bool] = None,
+        close_position: Optional[bool] = None,
+        activation_price: Optional[float] = None,
+        callback_rate: Optional[float] = None,
+        working_type: Optional[WorkingType] = None,
+        price_protect: Optional[bool] = None,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place an algo order (conditional order) via the new Algo Service API.
+
+        IMPORTANT: Since December 9, 2025, all conditional orders must use this endpoint.
+        The standard /fapi/v1/order endpoint will return error -4120 for these order types.
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+            side: Order side (BUY or SELL)
+            order_type: Algo order type (STOP, STOP_MARKET, TAKE_PROFIT, etc.)
+            quantity: Order quantity (not required if close_position=True)
+            price: Limit price (required for STOP and TAKE_PROFIT)
+            stop_price: Trigger price (required for all conditional orders)
+            time_in_force: Time in force (GTC, IOC, FOK, GTX)
+            position_side: Position side for hedge mode (BOTH, LONG, SHORT)
+            reduce_only: Reduce only flag
+            close_position: Close entire position when triggered
+            activation_price: Activation price for trailing stop
+            callback_rate: Callback rate for trailing stop (0.1 to 5)
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            price_protect: Enable price protection
+            new_client_order_id: Custom client order ID
+
+        Returns:
+            AlgoOrderResult object with order details
+
+        Example:
+            >>> # Stop loss using new Algo API
+            >>> order = client.place_algo_order(
+            ...     "BTCUSDT", OrderSide.SELL, AlgoOrderType.STOP_MARKET,
+            ...     quantity=0.01, stop_price=39000
+            ... )
+        """
+        params = {
+            "symbol": symbol.upper(),
+            "side": side.value if isinstance(side, OrderSide) else side,
+            "type": order_type.value if isinstance(order_type, AlgoOrderType) else order_type,
+        }
+
+        if quantity is not None:
+            params["quantity"] = str(quantity)
+
+        if price is not None:
+            params["price"] = str(price)
+
+        if stop_price is not None:
+            params["stopPrice"] = str(stop_price)
+
+        if time_in_force is not None:
+            params["timeInForce"] = time_in_force.value if isinstance(time_in_force, TimeInForce) else time_in_force
+
+        params["positionSide"] = position_side.value if isinstance(position_side, PositionSide) else position_side
+
+        if reduce_only is not None:
+            params["reduceOnly"] = str(reduce_only).lower()
+
+        if close_position is not None:
+            params["closePosition"] = str(close_position).lower()
+
+        if activation_price is not None:
+            params["activationPrice"] = str(activation_price)
+
+        if callback_rate is not None:
+            params["callbackRate"] = str(callback_rate)
+
+        if working_type is not None:
+            params["workingType"] = working_type.value if isinstance(working_type, WorkingType) else working_type
+
+        if price_protect is not None:
+            params["priceProtect"] = str(price_protect).lower()
+
+        if new_client_order_id is not None:
+            params["newClientOrderId"] = new_client_order_id
+
+        response = self._post(self.ENDPOINTS["algo_order"], params)
+        return AlgoOrderResult.from_response(response)
+
+    def algo_stop_market_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        stop_price: float,
+        position_side: PositionSide = PositionSide.BOTH,
+        working_type: WorkingType = WorkingType.CONTRACT_PRICE,
+        reduce_only: bool = False,
+        price_protect: bool = False,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place a stop market order via the Algo Service API.
+
+        Args:
+            symbol: Trading pair symbol
+            side: BUY or SELL
+            quantity: Order quantity
+            stop_price: Trigger price
+            position_side: Position side for hedge mode
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            reduce_only: If True, only reduce position
+            price_protect: Enable price protection
+            new_client_order_id: Custom order ID
+
+        Returns:
+            AlgoOrderResult with order details
+
+        Example:
+            >>> order = client.algo_stop_market_order("BTCUSDT", OrderSide.SELL, 0.01, 39000)
+        """
+        return self.place_algo_order(
+            symbol=symbol,
+            side=side,
+            order_type=AlgoOrderType.STOP_MARKET,
+            quantity=quantity,
+            stop_price=stop_price,
+            position_side=position_side,
+            working_type=working_type,
+            reduce_only=reduce_only if reduce_only else None,
+            price_protect=price_protect if price_protect else None,
+            new_client_order_id=new_client_order_id
+        )
+
+    def algo_stop_limit_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        price: float,
+        stop_price: float,
+        time_in_force: TimeInForce = TimeInForce.GTC,
+        position_side: PositionSide = PositionSide.BOTH,
+        working_type: WorkingType = WorkingType.CONTRACT_PRICE,
+        reduce_only: bool = False,
+        price_protect: bool = False,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place a stop limit order via the Algo Service API.
+
+        Args:
+            symbol: Trading pair symbol
+            side: BUY or SELL
+            quantity: Order quantity
+            price: Limit price after trigger
+            stop_price: Trigger price
+            time_in_force: GTC, IOC, FOK, or GTX
+            position_side: Position side for hedge mode
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            reduce_only: If True, only reduce position
+            price_protect: Enable price protection
+            new_client_order_id: Custom order ID
+
+        Returns:
+            AlgoOrderResult with order details
+        """
+        return self.place_algo_order(
+            symbol=symbol,
+            side=side,
+            order_type=AlgoOrderType.STOP,
+            quantity=quantity,
+            price=price,
+            stop_price=stop_price,
+            time_in_force=time_in_force,
+            position_side=position_side,
+            working_type=working_type,
+            reduce_only=reduce_only if reduce_only else None,
+            price_protect=price_protect if price_protect else None,
+            new_client_order_id=new_client_order_id
+        )
+
+    def algo_take_profit_market_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        stop_price: float,
+        position_side: PositionSide = PositionSide.BOTH,
+        working_type: WorkingType = WorkingType.CONTRACT_PRICE,
+        reduce_only: bool = True,
+        price_protect: bool = False,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place a take profit market order via the Algo Service API.
+
+        Args:
+            symbol: Trading pair symbol
+            side: BUY or SELL
+            quantity: Order quantity
+            stop_price: Trigger price (take profit level)
+            position_side: Position side for hedge mode
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            reduce_only: If True, only reduce position (default True)
+            price_protect: Enable price protection
+            new_client_order_id: Custom order ID
+
+        Returns:
+            AlgoOrderResult with order details
+
+        Example:
+            >>> order = client.algo_take_profit_market_order("BTCUSDT", OrderSide.SELL, 0.01, 45000)
+        """
+        return self.place_algo_order(
+            symbol=symbol,
+            side=side,
+            order_type=AlgoOrderType.TAKE_PROFIT_MARKET,
+            quantity=quantity,
+            stop_price=stop_price,
+            position_side=position_side,
+            working_type=working_type,
+            reduce_only=reduce_only if reduce_only else None,
+            price_protect=price_protect if price_protect else None,
+            new_client_order_id=new_client_order_id
+        )
+
+    def algo_take_profit_limit_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        price: float,
+        stop_price: float,
+        time_in_force: TimeInForce = TimeInForce.GTC,
+        position_side: PositionSide = PositionSide.BOTH,
+        working_type: WorkingType = WorkingType.CONTRACT_PRICE,
+        reduce_only: bool = True,
+        price_protect: bool = False,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place a take profit limit order via the Algo Service API.
+
+        Args:
+            symbol: Trading pair symbol
+            side: BUY or SELL
+            quantity: Order quantity
+            price: Limit price after trigger
+            stop_price: Trigger price (take profit level)
+            time_in_force: GTC, IOC, FOK, or GTX
+            position_side: Position side for hedge mode
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            reduce_only: If True, only reduce position (default True)
+            price_protect: Enable price protection
+            new_client_order_id: Custom order ID
+
+        Returns:
+            AlgoOrderResult with order details
+        """
+        return self.place_algo_order(
+            symbol=symbol,
+            side=side,
+            order_type=AlgoOrderType.TAKE_PROFIT,
+            quantity=quantity,
+            price=price,
+            stop_price=stop_price,
+            time_in_force=time_in_force,
+            position_side=position_side,
+            working_type=working_type,
+            reduce_only=reduce_only if reduce_only else None,
+            price_protect=price_protect if price_protect else None,
+            new_client_order_id=new_client_order_id
+        )
+
+    def algo_trailing_stop_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        callback_rate: float,
+        activation_price: Optional[float] = None,
+        position_side: PositionSide = PositionSide.BOTH,
+        working_type: WorkingType = WorkingType.CONTRACT_PRICE,
+        reduce_only: bool = True,
+        price_protect: bool = False,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place a trailing stop market order via the Algo Service API.
+
+        Args:
+            symbol: Trading pair symbol
+            side: BUY or SELL
+            quantity: Order quantity
+            callback_rate: Callback rate percentage (0.1 to 5)
+            activation_price: Price at which trailing starts (optional)
+            position_side: Position side for hedge mode
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            reduce_only: If True, only reduce position (default True)
+            price_protect: Enable price protection
+            new_client_order_id: Custom order ID
+
+        Returns:
+            AlgoOrderResult with order details
+
+        Example:
+            >>> order = client.algo_trailing_stop_order("BTCUSDT", OrderSide.SELL, 0.01, 1.0)
+        """
+        return self.place_algo_order(
+            symbol=symbol,
+            side=side,
+            order_type=AlgoOrderType.TRAILING_STOP_MARKET,
+            quantity=quantity,
+            callback_rate=callback_rate,
+            activation_price=activation_price,
+            position_side=position_side,
+            working_type=working_type,
+            reduce_only=reduce_only if reduce_only else None,
+            price_protect=price_protect if price_protect else None,
+            new_client_order_id=new_client_order_id
+        )
+
+    def algo_close_position_stop_loss(
+        self,
+        symbol: str,
+        side: OrderSide,
+        stop_price: float,
+        position_side: PositionSide = PositionSide.BOTH,
+        working_type: WorkingType = WorkingType.CONTRACT_PRICE,
+        price_protect: bool = False,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place a stop loss that closes entire position when triggered (Algo API).
+
+        Args:
+            symbol: Trading pair symbol
+            side: BUY (for short) or SELL (for long)
+            stop_price: Trigger price
+            position_side: Position side for hedge mode
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            price_protect: Enable price protection
+            new_client_order_id: Custom order ID
+
+        Returns:
+            AlgoOrderResult with order details
+        """
+        return self.place_algo_order(
+            symbol=symbol,
+            side=side,
+            order_type=AlgoOrderType.STOP_MARKET,
+            stop_price=stop_price,
+            close_position=True,
+            position_side=position_side,
+            working_type=working_type,
+            price_protect=price_protect if price_protect else None,
+            new_client_order_id=new_client_order_id
+        )
+
+    def algo_close_position_take_profit(
+        self,
+        symbol: str,
+        side: OrderSide,
+        stop_price: float,
+        position_side: PositionSide = PositionSide.BOTH,
+        working_type: WorkingType = WorkingType.CONTRACT_PRICE,
+        price_protect: bool = False,
+        new_client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Place a take profit that closes entire position when triggered (Algo API).
+
+        Args:
+            symbol: Trading pair symbol
+            side: BUY (for short) or SELL (for long)
+            stop_price: Take profit price
+            position_side: Position side for hedge mode
+            working_type: MARK_PRICE or CONTRACT_PRICE
+            price_protect: Enable price protection
+            new_client_order_id: Custom order ID
+
+        Returns:
+            AlgoOrderResult with order details
+        """
+        return self.place_algo_order(
+            symbol=symbol,
+            side=side,
+            order_type=AlgoOrderType.TAKE_PROFIT_MARKET,
+            stop_price=stop_price,
+            close_position=True,
+            position_side=position_side,
+            working_type=working_type,
+            price_protect=price_protect if price_protect else None,
+            new_client_order_id=new_client_order_id
+        )
+
+    def get_algo_order(
+        self,
+        symbol: str,
+        algo_id: Optional[int] = None,
+        client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Query an algo order.
+
+        Args:
+            symbol: Trading pair symbol
+            algo_id: Algo order ID
+            client_order_id: Custom client order ID
+
+        Returns:
+            AlgoOrderResult with order details
+        """
+        params = {"symbol": symbol.upper()}
+
+        if algo_id is not None:
+            params["algoId"] = algo_id
+        elif client_order_id is not None:
+            params["origClientOrderId"] = client_order_id
+        else:
+            raise ValueError("Either algo_id or client_order_id must be provided")
+
+        response = self._get(self.ENDPOINTS["algo_order"], params)
+        return AlgoOrderResult.from_response(response)
+
+    def cancel_algo_order(
+        self,
+        symbol: str,
+        algo_id: Optional[int] = None,
+        client_order_id: Optional[str] = None
+    ) -> AlgoOrderResult:
+        """
+        Cancel an algo order.
+
+        Args:
+            symbol: Trading pair symbol
+            algo_id: Algo order ID
+            client_order_id: Custom client order ID
+
+        Returns:
+            AlgoOrderResult with cancelled order details
+        """
+        params = {"symbol": symbol.upper()}
+
+        if algo_id is not None:
+            params["algoId"] = algo_id
+        elif client_order_id is not None:
+            params["origClientOrderId"] = client_order_id
+        else:
+            raise ValueError("Either algo_id or client_order_id must be provided")
+
+        response = self._delete(self.ENDPOINTS["algo_order"], params)
+        return AlgoOrderResult.from_response(response)
+
+    def cancel_all_algo_orders(self, symbol: str) -> Dict[str, Any]:
+        """
+        Cancel all open algo orders for a symbol.
+
+        Args:
+            symbol: Trading pair symbol
+
+        Returns:
+            API response confirming cancellation
+        """
+        params = {"symbol": symbol.upper()}
+        return self._delete(self.ENDPOINTS["algo_cancel_all"], params)
+
+    def get_open_algo_orders(self, symbol: Optional[str] = None) -> List[AlgoOrderResult]:
+        """
+        Get all open algo orders.
+
+        Args:
+            symbol: Trading pair symbol (optional)
+
+        Returns:
+            List of AlgoOrderResult objects
+        """
+        params = {}
+        if symbol is not None:
+            params["symbol"] = symbol.upper()
+
+        responses = self._get(self.ENDPOINTS["algo_open_orders"], params)
+        orders = responses.get("orders", responses) if isinstance(responses, dict) else responses
+        return [AlgoOrderResult.from_response(r) for r in orders]
+
+    def get_all_algo_orders(
+        self,
+        symbol: str,
+        algo_id: Optional[int] = None,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        limit: int = 500
+    ) -> List[AlgoOrderResult]:
+        """
+        Get all algo orders (active, canceled, triggered).
+
+        Args:
+            symbol: Trading pair symbol
+            algo_id: Algo order ID to start from
+            start_time: Start timestamp in ms
+            end_time: End timestamp in ms
+            limit: Number of results (max 1000)
+
+        Returns:
+            List of AlgoOrderResult objects
+        """
+        params = {
+            "symbol": symbol.upper(),
+            "limit": min(limit, 1000)
+        }
+
+        if algo_id is not None:
+            params["algoId"] = algo_id
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        responses = self._get(self.ENDPOINTS["algo_all_orders"], params)
+        orders = responses.get("orders", responses) if isinstance(responses, dict) else responses
+        return [AlgoOrderResult.from_response(r) for r in orders]
+
+    # ==================== TWAP Orders (Time-Weighted Average Price) ====================
+
+    def place_twap_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        duration: int,
+        position_side: PositionSide = PositionSide.BOTH,
+        limit_price: Optional[float] = None,
+        reduce_only: bool = False,
+        client_algo_id: Optional[str] = None
+    ) -> TWAPOrderResult:
+        """
+        Place a TWAP (Time-Weighted Average Price) order.
+
+        TWAP executes a large order by slicing it into smaller orders over a specified duration,
+        aiming to achieve an average execution price close to the time-weighted average price.
+
+        Constraints:
+        - Notional (qty * mark price) must be between 10,000 and 1,000,000 USDT
+        - Duration: 300 to 86,400 seconds (5 min to 24 hours)
+        - Max 10 simultaneous TWAP orders per account
+        - quantity * 60 / duration should be larger than minQty
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+            side: Order side (BUY or SELL)
+            quantity: Total quantity to execute
+            duration: Duration in seconds (300-86400)
+            position_side: Position side for hedge mode
+            limit_price: Optional limit price (market price if not specified)
+            reduce_only: If True, only reduce position
+            client_algo_id: Custom algo ID (max 32 chars)
+
+        Returns:
+            TWAPOrderResult with order details
+
+        Note:
+            Receiving success=True doesn't mean order will execute.
+            Use get_twap_open_orders() or get_twap_historical_orders() to check status.
+
+        Example:
+            >>> # Execute 1 BTC over 1 hour
+            >>> order = client.place_twap_order("BTCUSDT", OrderSide.BUY, 1.0, duration=3600)
+        """
+        if duration < 300 or duration > 86400:
+            raise ValueError("Duration must be between 300 and 86400 seconds")
+
+        params = {
+            "symbol": symbol.upper(),
+            "side": side.value if isinstance(side, OrderSide) else side,
+            "quantity": str(quantity),
+            "duration": duration,
+            "positionSide": position_side.value if isinstance(position_side, PositionSide) else position_side,
+        }
+
+        if limit_price is not None:
+            params["limitPrice"] = str(limit_price)
+
+        if reduce_only:
+            params["reduceOnly"] = "true"
+
+        if client_algo_id is not None:
+            params["clientAlgoId"] = client_algo_id
+
+        response = self._sapi_post(self.ENDPOINTS["twap_new"], params)
+        return TWAPOrderResult.from_response(response)
+
+    # ==================== VP Orders (Volume Participation) ====================
+
+    def place_vp_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        urgency: VPUrgency = VPUrgency.LOW,
+        position_side: PositionSide = PositionSide.BOTH,
+        limit_price: Optional[float] = None,
+        reduce_only: bool = False,
+        client_algo_id: Optional[str] = None
+    ) -> VPOrderResult:
+        """
+        Place a VP (Volume Participation) order.
+
+        VP is an opportunistic execution strategy that executes orders at a pace matching
+        a portion of the real-time market volume based on the urgency level.
+
+        Urgency levels determine participation rate:
+        - LOW: Lower participation rate, minimal market impact
+        - MEDIUM: Balanced participation rate
+        - HIGH: Higher participation rate, faster execution
+
+        Constraints:
+        - Notional (qty * mark price) must be between 10,000 and 1,000,000 USDT
+        - Max 10 simultaneous VP orders per account
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+            side: Order side (BUY or SELL)
+            quantity: Total quantity to execute
+            urgency: Urgency level (LOW, MEDIUM, HIGH)
+            position_side: Position side for hedge mode
+            limit_price: Optional limit price (market price if not specified)
+            reduce_only: If True, only reduce position
+            client_algo_id: Custom algo ID (max 32 chars)
+
+        Returns:
+            VPOrderResult with order details
+
+        Note:
+            Receiving success=True doesn't mean order will execute.
+            Use get_vp_open_orders() or get_vp_historical_orders() to check status.
+
+        Example:
+            >>> # Execute 1 BTC with low market impact
+            >>> order = client.place_vp_order("BTCUSDT", OrderSide.BUY, 1.0, VPUrgency.LOW)
+        """
+        params = {
+            "symbol": symbol.upper(),
+            "side": side.value if isinstance(side, OrderSide) else side,
+            "quantity": str(quantity),
+            "urgency": urgency.value if isinstance(urgency, VPUrgency) else urgency,
+            "positionSide": position_side.value if isinstance(position_side, PositionSide) else position_side,
+        }
+
+        if limit_price is not None:
+            params["limitPrice"] = str(limit_price)
+
+        if reduce_only:
+            params["reduceOnly"] = "true"
+
+        if client_algo_id is not None:
+            params["clientAlgoId"] = client_algo_id
+
+        response = self._sapi_post(self.ENDPOINTS["vp_new"], params)
+        return VPOrderResult.from_response(response)
+
+    # ==================== TWAP/VP Order Management ====================
+
+    def cancel_twap_vp_order(self, algo_id: int) -> Dict[str, Any]:
+        """
+        Cancel a TWAP or VP order.
+
+        Args:
+            algo_id: The algo order ID to cancel
+
+        Returns:
+            API response confirming cancellation
+        """
+        params = {"algoId": algo_id}
+        return self._sapi_delete(self.ENDPOINTS["algo_cancel"], params)
+
+    def get_twap_vp_open_orders(self) -> List[Dict[str, Any]]:
+        """
+        Get all open TWAP and VP orders.
+
+        Returns:
+            List of open algo order dictionaries
+        """
+        response = self._sapi_get(self.ENDPOINTS["algo_sapi_open_orders"])
+        return response.get("orders", [])
+
+    def get_twap_vp_historical_orders(
+        self,
+        symbol: Optional[str] = None,
+        side: Optional[OrderSide] = None,
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+        page: int = 1,
+        page_size: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Get historical TWAP and VP orders.
+
+        Args:
+            symbol: Trading pair symbol (optional)
+            side: Order side filter (optional)
+            start_time: Start timestamp in ms
+            end_time: End timestamp in ms
+            page: Page number (starting from 1)
+            page_size: Results per page (max 100)
+
+        Returns:
+            Dict with 'total' count and 'orders' list
+        """
+        params = {
+            "page": page,
+            "pageSize": min(page_size, 100)
+        }
+
+        if symbol is not None:
+            params["symbol"] = symbol.upper()
+        if side is not None:
+            params["side"] = side.value if isinstance(side, OrderSide) else side
+        if start_time is not None:
+            params["startTime"] = start_time
+        if end_time is not None:
+            params["endTime"] = end_time
+
+        return self._sapi_get(self.ENDPOINTS["algo_sapi_historical_orders"], params)
+
+    def get_twap_vp_sub_orders(self, algo_id: int, page: int = 1, page_size: int = 100) -> Dict[str, Any]:
+        """
+        Get sub-orders (child orders) of a TWAP or VP order.
+
+        TWAP/VP orders are executed via multiple smaller sub-orders.
+        This method returns the details of these sub-orders.
+
+        Args:
+            algo_id: The parent algo order ID
+            page: Page number (starting from 1)
+            page_size: Results per page (max 100)
+
+        Returns:
+            Dict with 'total' count and 'executedQty', 'executedAmt', 'subOrders' list
+        """
+        params = {
+            "algoId": algo_id,
+            "page": page,
+            "pageSize": min(page_size, 100)
+        }
+        return self._sapi_get(self.ENDPOINTS["algo_sapi_sub_orders"], params)
+
     # ==================== Order Management ====================
 
     def get_order(
@@ -1703,5 +2647,51 @@ if __name__ == "__main__":
     # account = client.get_account()
     # balance = client.get_asset_balance("USDT")
 
+    # ==================== NEW ALGO ORDERS (Post Dec 2025) ====================
+    # Since Dec 9, 2025, conditional orders use the new Algo API
+
+    # 10. Algo Stop Orders (use these instead of stop_market_order/stop_limit_order)
+    # order = client.algo_stop_market_order("BTCUSDT", OrderSide.SELL, 0.01, stop_price=39000)
+    # order = client.algo_stop_limit_order("BTCUSDT", OrderSide.SELL, 0.01, price=38900, stop_price=39000)
+
+    # 11. Algo Take Profit Orders
+    # order = client.algo_take_profit_market_order("BTCUSDT", OrderSide.SELL, 0.01, stop_price=45000)
+    # order = client.algo_take_profit_limit_order("BTCUSDT", OrderSide.SELL, 0.01, price=45100, stop_price=45000)
+
+    # 12. Algo Trailing Stop
+    # order = client.algo_trailing_stop_order("BTCUSDT", OrderSide.SELL, 0.01, callback_rate=1.0)
+
+    # 13. Algo Close Position Orders
+    # order = client.algo_close_position_stop_loss("BTCUSDT", OrderSide.SELL, stop_price=39000)
+    # order = client.algo_close_position_take_profit("BTCUSDT", OrderSide.SELL, stop_price=45000)
+
+    # 14. Query and Cancel Algo Orders
+    # open_algos = client.get_open_algo_orders("BTCUSDT")
+    # client.cancel_algo_order("BTCUSDT", algo_id=123456)
+    # client.cancel_all_algo_orders("BTCUSDT")
+
+    # ==================== TWAP & VP ORDERS ====================
+
+    # 15. TWAP Order (Time-Weighted Average Price)
+    # Execute 1 BTC over 1 hour with minimal market impact
+    # order = client.place_twap_order(
+    #     "BTCUSDT", OrderSide.BUY, quantity=1.0,
+    #     duration=3600  # 1 hour in seconds
+    # )
+
+    # 16. VP Order (Volume Participation)
+    # Execute order matching market volume with specified urgency
+    # order = client.place_vp_order(
+    #     "BTCUSDT", OrderSide.BUY, quantity=1.0,
+    #     urgency=VPUrgency.LOW  # LOW, MEDIUM, or HIGH
+    # )
+
+    # 17. Manage TWAP/VP Orders
+    # open_orders = client.get_twap_vp_open_orders()
+    # history = client.get_twap_vp_historical_orders(symbol="BTCUSDT")
+    # sub_orders = client.get_twap_vp_sub_orders(algo_id=123456)
+    # client.cancel_twap_vp_order(algo_id=123456)
+
     print("Binance Futures Client loaded successfully!")
     print("Initialize with: client = BinanceFuturesClient(api_key, api_secret)")
+    print("\nIMPORTANT: Since Dec 9, 2025, use algo_* methods for conditional orders!")
