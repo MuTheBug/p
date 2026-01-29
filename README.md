@@ -458,6 +458,168 @@ Testnet URL: https://testnet.binancefuture.com
 
 MIT License
 
+---
+
+## Trendline Strategy Trading Bot
+
+This project includes a complete trading bot implementing the **Trendline Strategy** - a swing trading method using trendlines, clear rules, and strict risk control.
+
+### Strategy Overview
+
+The strategy is based on two key concepts:
+- **Action Line**: Where to enter a trade
+- **Safety Line**: Where to exit if the trade doesn't work out
+
+**Three setup types are supported:**
+
+1. **Trendline Bounce**: Enter when price touches and respects an existing trendline
+2. **Trendline Break (2-point)**: Enter when price breaks a 2-touchpoint trendline
+3. **Trendline Break (3-point)**: Enter when price breaks a 3+ touchpoint trendline (more reliable)
+
+### Quick Start
+
+```bash
+# 1. Copy the example environment file
+cp .env.example .env
+
+# 2. Edit .env with your API keys
+nano .env
+
+# 3. Install dependencies
+pip install requests numpy python-dotenv
+
+# 4. Run in signal-only mode (recommended for testing)
+python run_bot.py --symbols BTCUSDT ETHUSDT
+
+# 5. Run with auto-trading (use testnet first!)
+python run_bot.py --auto-trade --testnet
+```
+
+### Configuration
+
+Create a `.env` file with the following variables (see `.env.example`):
+
+```bash
+# Binance API
+BINANCE_API_KEY=your_api_key
+BINANCE_API_SECRET=your_api_secret
+BINANCE_TESTNET=true
+
+# Telegram (for notifications)
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+TELEGRAM_ENABLED=true
+
+# Trading
+TRADING_SYMBOLS=BTCUSDT,ETHUSDT
+TIMEFRAME=4h
+RISK_PER_TRADE_PCT=1.0
+LEVERAGE=10
+AUTO_TRADE=false
+```
+
+### Usage Examples
+
+#### Python API
+
+```python
+from binance_futures import BinanceFuturesClient
+from telegram_notifier import TelegramNotifier
+from trendline_strategy import TrendlineStrategyBot
+
+# Initialize clients
+client = BinanceFuturesClient(api_key, api_secret, testnet=True)
+notifier = TelegramNotifier(bot_token, chat_id)
+
+# Create bot with custom config
+bot = TrendlineStrategyBot(
+    binance_client=client,
+    telegram_notifier=notifier,
+    config={
+        "timeframe": "4h",
+        "risk_per_trade_pct": 1.0,
+        "leverage": 10,
+        "enable_trailing_stop": True,
+        "take_profit_rr_ratio": 2.0,  # 2:1 risk-reward
+    }
+)
+
+# Run in signal-only mode
+bot.run(symbols=["BTCUSDT", "ETHUSDT"], auto_trade=False)
+
+# Or scan for setups manually
+setups = bot.scan_for_setups("BTCUSDT")
+for setup in setups:
+    print(f"Found: {setup.setup_type.value} {setup.direction}")
+```
+
+#### Command Line
+
+```bash
+# Dry run - scan for setups without trading
+python run_bot.py --dry-run --symbols BTCUSDT
+
+# Signal-only mode (default)
+python run_bot.py --symbols BTCUSDT ETHUSDT SOLUSDT
+
+# Enable auto-trading on testnet
+python run_bot.py --auto-trade --testnet
+
+# Verbose logging
+python run_bot.py -v --symbols BTCUSDT
+```
+
+### Telegram Notifications
+
+The bot sends notifications for:
+- Trade entries with full details (entry, SL, TP, R:R ratio)
+- Trade exits with PnL summary
+- Stop loss/take profit hits
+- Trailing stop updates
+- Signal alerts for detected setups
+- Errors and warnings
+
+Example notification:
+```
+📈 TRADE ENTRY 🟢
+━━━━━━━━━━━━━━━━━━━━
+Symbol: BTCUSDT
+Side: LONG
+Quantity: 0.01
+Entry Price: $42,000.00
+Stop Loss: $41,000.00 (2.38%)
+Take Profit: $44,000.00 (4.76%)
+Risk/Reward: 1:2.00
+
+Strategy: Trendline Strategy
+Setup: Trendline Bounce
+
+Details:
+  • Touchpoints: 3
+  • Confidence: 80%
+  • Time Span: 200h
+```
+
+### Risk Management
+
+The bot includes comprehensive risk management:
+- **Position sizing** based on % risk per trade
+- **Maximum positions** limit
+- **Trailing stops** along trendlines
+- **Safety line validation** before entry
+- **Automatic stop loss** placement
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `binance_futures.py` | Binance Futures API client |
+| `telegram_notifier.py` | Telegram notification service |
+| `trendline_strategy.py` | Trendline Strategy bot |
+| `config.py` | Configuration management |
+| `run_bot.py` | Bot runner script |
+| `.env.example` | Example environment file |
+
 ## References
 
 - [Binance Futures API Documentation](https://developers.binance.com/docs/derivatives/usds-margined-futures/general-info)
@@ -465,3 +627,4 @@ MIT License
 - [TWAP Orders](https://developers.binance.com/docs/algo/future-algo/Time-Weighted-Average-Price-New-Order)
 - [VP Orders](https://developers.binance.com/docs/algo/future-algo)
 - [API Change Log](https://developers.binance.com/docs/derivatives/change-log)
+- [Trendline Strategy by Tori Trades](https://www.tradezella.com/strategies/trendline-strategy)

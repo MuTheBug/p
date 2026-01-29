@@ -69,3 +69,9 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+
+# Bot specific
+*.log
+trendline_bot.log
+trades.db
+trades.json
