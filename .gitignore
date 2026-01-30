@@ -69,3 +69,8 @@ venv.bak/
 # OS
 .DS_Store
 Thumbs.db
+
+# Trading bot files
+trading_bot.log
+strategy_state.json
+*.log
