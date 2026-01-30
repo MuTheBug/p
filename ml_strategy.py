@@ -223,42 +223,59 @@ class MLTradingBot:
 
     def _prepare_training_data(
         self,
-        symbols: List[str]
+        symbols: List[str],
+        batch_size: int = 2
     ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-        """Prepare training data from multiple symbols."""
+        """
+        Prepare training data from multiple symbols.
+
+        Processes symbols in batches to limit memory usage.
+        """
         all_features = []
         all_labels = []
+        feature_names = None
 
-        for symbol in symbols:
-            logger.info(f"Fetching data for {symbol}...")
-            klines = self._get_historical_klines(symbol)
+        # Process symbols in batches of batch_size
+        for i in range(0, len(symbols), batch_size):
+            batch_symbols = symbols[i:i + batch_size]
+            logger.info(f"Processing batch {i//batch_size + 1}: {batch_symbols}")
 
-            if len(klines) < 200:
-                logger.warning(f"Insufficient data for {symbol}")
-                continue
+            for symbol in batch_symbols:
+                logger.info(f"Fetching data for {symbol}...")
+                klines = self._get_historical_klines(symbol)
 
-            # Extract arrays
-            open_ = np.array([k['open'] for k in klines])
-            high = np.array([k['high'] for k in klines])
-            low = np.array([k['low'] for k in klines])
-            close = np.array([k['close'] for k in klines])
-            volume = np.array([k['volume'] for k in klines])
-            times = np.array([k['time'] for k in klines])
+                if len(klines) < 200:
+                    logger.warning(f"Insufficient data for {symbol}")
+                    continue
 
-            # Extract features
-            feature_set = self.feature_engineer.extract_features(
-                open_, high, low, close, volume, times
-            )
+                # Extract arrays
+                open_ = np.array([k['open'] for k in klines])
+                high = np.array([k['high'] for k in klines])
+                low = np.array([k['low'] for k in klines])
+                close = np.array([k['close'] for k in klines])
+                volume = np.array([k['volume'] for k in klines])
+                times = np.array([k['time'] for k in klines])
 
-            # Create labels
-            labels = self.feature_engineer.create_labels(
-                close,
-                forward_period=self.model.config.forward_period,
-                threshold=self.model.config.label_threshold
-            )
+                # Extract features
+                feature_set = self.feature_engineer.extract_features(
+                    open_, high, low, close, volume, times
+                )
 
-            all_features.append(feature_set.features)
-            all_labels.append(labels)
+                # Create labels
+                labels = self.feature_engineer.create_labels(
+                    close,
+                    forward_period=self.model.config.forward_period,
+                    threshold=self.model.config.label_threshold
+                )
+
+                all_features.append(feature_set.features)
+                all_labels.append(labels)
+
+                if feature_names is None:
+                    feature_names = self.feature_engineer.feature_names
+
+                # Clear klines from memory
+                del klines, open_, high, low, close, volume, times
 
         if not all_features:
             raise ValueError("No training data available")
@@ -267,7 +284,10 @@ class MLTradingBot:
         X = np.vstack(all_features)
         y = np.concatenate(all_labels)
 
-        return X, y, self.feature_engineer.feature_names
+        # Clear intermediate lists
+        del all_features, all_labels
+
+        return X, y, feature_names
 
     def train_model(self, symbols: List[str] = None) -> Dict[str, Any]:
         """Train or retrain the ML model."""

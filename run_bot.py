@@ -264,13 +264,7 @@ def main():
     parser.add_argument(
         "--testnet",
         action="store_true",
-        default=True,
-        help="Use testnet (default: True)"
-    )
-    parser.add_argument(
-        "--live",
-        action="store_true",
-        help="Use live/production mode (overrides --testnet)"
+        help="Use testnet mode (for testing)"
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -288,8 +282,8 @@ def main():
     if args.signal_only:
         args.auto_trade = False
 
-    # Determine testnet mode
-    testnet = not args.live
+    # Determine testnet mode (default: live/production)
+    testnet = args.testnet
 
     try:
         # Create clients
@@ -333,17 +327,6 @@ def main():
         logger.info(f"Symbols: {', '.join(args.symbols)}")
         logger.info(f"Timeframe: {args.timeframe}")
         logger.info(f"Auto-trade: {args.auto_trade}")
-
-        # Safety warning for production
-        if not testnet and args.auto_trade:
-            logger.warning("=" * 50)
-            logger.warning("PRODUCTION MODE WITH AUTO-TRADING!")
-            logger.warning("Real money at risk!")
-            logger.warning("=" * 50)
-            response = input("Type 'CONFIRM' to proceed: ")
-            if response != "CONFIRM":
-                logger.info("Aborted")
-                return
 
         # Create Telegram notifier
         logger.info("Initializing Telegram...")
