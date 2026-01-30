@@ -781,6 +781,7 @@ class MLTradingBot:
                     positions_by_symbol[trade.symbol] = positions_by_symbol.get(trade.symbol, 0) + 1
 
                 # Scan symbols
+                scan_results = []
                 for symbol in symbols:
                     # Check position limits
                     if open_positions >= self.config.max_positions:
@@ -793,7 +794,12 @@ class MLTradingBot:
                     prediction = self.scan_symbol(symbol)
 
                     if prediction is None:
+                        scan_results.append(f"{symbol}:ERR")
                         continue
+
+                    # Log scan result
+                    signal_str = "L" if prediction.signal == 1 else "S" if prediction.signal == -1 else "-"
+                    scan_results.append(f"{symbol}:{signal_str}({prediction.confidence:.0%})")
 
                     if prediction.signal == 0:
                         continue
@@ -828,6 +834,9 @@ class MLTradingBot:
                         if trade:
                             open_positions += 1
                             positions_by_symbol[symbol] = positions_by_symbol.get(symbol, 0) + 1
+
+                # Log scan summary
+                logger.info(f"Scan complete: {' | '.join(scan_results)} | Positions: {open_positions}/{self.config.max_positions}")
 
             except KeyboardInterrupt:
                 logger.info("Bot stopped by user")
