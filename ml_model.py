@@ -37,14 +37,14 @@ class ModelConfig:
     xgb_reg_alpha: float = 0.1
     xgb_reg_lambda: float = 1.0
 
-    # LSTM parameters
-    lstm_units: int = 64
+    # LSTM parameters (optimized for low memory VPS)
+    lstm_units: int = 32
     lstm_dropout: float = 0.2
     lstm_recurrent_dropout: float = 0.2
-    lstm_dense_units: int = 32
-    lstm_epochs: int = 50
-    lstm_batch_size: int = 32
-    lstm_sequence_length: int = 60
+    lstm_dense_units: int = 16
+    lstm_epochs: int = 30
+    lstm_batch_size: int = 16
+    lstm_sequence_length: int = 30
 
     # Ensemble parameters
     ensemble_weights: Dict[str, float] = field(default_factory=lambda: {
@@ -132,14 +132,22 @@ class TradingModel:
 
         try:
             import tensorflow as tf
-            self._has_tf = True
-            self._tf = tf
-            # Check for GPU
-            if tf.config.list_physical_devices('GPU'):
+
+            # Memory optimization for VPS - only allocate memory as needed
+            gpus = tf.config.list_physical_devices('GPU')
+            if gpus:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
                 self._use_gpu = True
                 logger.info("TensorFlow with GPU available")
             else:
-                logger.info("TensorFlow available (CPU only)")
+                # CPU memory optimization
+                tf.config.threading.set_intra_op_parallelism_threads(2)
+                tf.config.threading.set_inter_op_parallelism_threads(2)
+                logger.info("TensorFlow available (CPU only, memory optimized)")
+
+            self._has_tf = True
+            self._tf = tf
         except ImportError:
             logger.warning("TensorFlow not available, LSTM disabled")
 
@@ -354,6 +362,15 @@ class TradingModel:
                 X_scaled, y,
                 sequence_length=self.config.lstm_sequence_length
             )
+
+            # Limit sequences for memory efficiency (max 5000 samples)
+            max_lstm_samples = 5000
+            if len(X_seq) > max_lstm_samples:
+                # Use stratified sampling - take recent data
+                indices = np.linspace(0, len(X_seq) - 1, max_lstm_samples, dtype=int)
+                X_seq = X_seq[indices]
+                y_seq = y_seq[indices]
+                logger.info(f"LSTM training limited to {max_lstm_samples} sequences for memory")
 
             if len(X_seq) > 100:
                 y_seq_cls = self._prepare_labels(y_seq)
