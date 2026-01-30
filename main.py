@@ -7,15 +7,11 @@ BTCUSDT, ETHUSDT, and SOLUSDT using Donchian channel breakouts
 with EMA trend filters and ATR-based position sizing.
 
 Usage:
-    # Using environment variables (recommended):
-    export BINANCE_API_KEY="your_api_key"
-    export BINANCE_API_SECRET="your_api_secret"
-    export TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
-    export TELEGRAM_CHAT_ID="your_telegram_chat_id"
+    # Using .env file (recommended):
+    # 1. Copy .env.example to .env
+    # 2. Fill in your API keys
+    # 3. Run:
     python main.py
-
-    # Using command line arguments:
-    python main.py --api-key "key" --api-secret "secret"
 
     # Testnet mode:
     python main.py --testnet
@@ -34,7 +30,23 @@ import os
 import sys
 import signal
 import logging
+from pathlib import Path
 from typing import Optional
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Look for .env in the same directory as this script
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"Loaded configuration from {env_path}")
+    else:
+        # Try current working directory
+        load_dotenv()
+except ImportError:
+    # python-dotenv not installed, will use environment variables directly
+    pass
 
 from donchian_breakout_strategy import DonchianBreakoutStrategy, StrategyConfig
 from telegram_notifier import TelegramNotifier, create_notifier_from_env
@@ -62,7 +74,7 @@ def signal_handler(signum, frame):
 
 
 def get_credentials():
-    """Get API credentials from environment or raise error."""
+    """Get API credentials from environment (loaded from .env)."""
     api_key = os.environ.get("BINANCE_API_KEY")
     api_secret = os.environ.get("BINANCE_API_SECRET")
 
@@ -73,7 +85,7 @@ def get_credentials():
 
 
 def get_telegram_config():
-    """Get Telegram configuration from environment."""
+    """Get Telegram configuration from environment (loaded from .env)."""
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     return bot_token, chat_id
@@ -107,28 +119,27 @@ def main():
         description="Donchian Breakout Trading Bot",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Setup:
+  1. Copy .env.example to .env
+  2. Fill in your API keys in .env file
+  3. Run: python main.py
+
 Examples:
-  python main.py                          Run with env vars
+  python main.py                          Run with .env config
   python main.py --testnet                Use testnet
   python main.py --once                   Single run (no loop)
   python main.py --symbols BTCUSDT        Trade only BTC
   python main.py --no-telegram            Disable Telegram notifications
-
-Telegram Setup:
-  1. Create a bot with @BotFather on Telegram
-  2. Get your chat ID by messaging @userinfobot
-  3. Set environment variables:
-     export TELEGRAM_BOT_TOKEN="your_bot_token"
-     export TELEGRAM_CHAT_ID="your_chat_id"
+  python main.py --test-telegram          Test Telegram connection
         """
     )
     parser.add_argument(
         "--api-key",
-        help="Binance API key (or set BINANCE_API_KEY env var)"
+        help="Binance API key (overrides .env file)"
     )
     parser.add_argument(
         "--api-secret",
-        help="Binance API secret (or set BINANCE_API_SECRET env var)"
+        help="Binance API secret (overrides .env file)"
     )
     parser.add_argument(
         "--testnet",

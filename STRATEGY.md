@@ -166,17 +166,19 @@ git clone <repository-url>
 cd p
 
 # Install dependencies
-pip install requests
+pip install -r requirements.txt
 
-# Set up credentials (choose one method)
-
-# Method 1: Environment variables (recommended)
-export BINANCE_API_KEY="your_api_key"
-export BINANCE_API_SECRET="your_api_secret"
-
-# Method 2: Create .env file
+# Set up credentials (copy and edit .env file)
 cp .env.example .env
-# Edit .env with your credentials
+
+# Edit .env with your API keys:
+# BINANCE_API_KEY=your_api_key
+# BINANCE_API_SECRET=your_api_secret
+# TELEGRAM_BOT_TOKEN=your_telegram_bot_token  (optional)
+# TELEGRAM_CHAT_ID=your_telegram_chat_id      (optional)
+
+# Run the bot
+python main.py
 ```
 
 ---
@@ -317,9 +319,8 @@ python main.py --telegram-token "token" --telegram-chat-id "id"
 ### Basic Usage
 
 ```bash
-# Run with environment variables
-export BINANCE_API_KEY="your_key"
-export BINANCE_API_SECRET="your_secret"
+# 1. Make sure .env file is configured with your API keys
+# 2. Run the bot
 python main.py
 ```
 
@@ -380,8 +381,7 @@ After=network.target
 Type=simple
 User=your_user
 WorkingDirectory=/path/to/p
-Environment=BINANCE_API_KEY=your_key
-Environment=BINANCE_API_SECRET=your_secret
+# API keys are loaded from .env file automatically
 ExecStart=/usr/bin/python3 main.py
 Restart=always
 RestartSec=10
@@ -477,7 +477,9 @@ p/
 ├── donchian_breakout_strategy.py # Core strategy logic
 ├── telegram_notifier.py          # Telegram notification system
 ├── binance_futures.py            # Binance API client
+├── requirements.txt              # Python dependencies
 ├── .env.example                  # Credential template
+├── .env                          # Your API keys (create from .env.example)
 ├── .gitignore                    # Git ignore rules
 ├── README.md                     # API client documentation
 ├── STRATEGY.md                   # This file
@@ -491,9 +493,11 @@ p/
 
 | File | Purpose |
 |------|---------|
-| `main.py` | CLI entry point, argument parsing, signal handling |
+| `main.py` | CLI entry point, loads .env, starts strategy |
 | `donchian_breakout_strategy.py` | All strategy logic, indicators, position management |
 | `telegram_notifier.py` | Telegram notifications for all trading events |
+| `requirements.txt` | Python package dependencies |
+| `.env` | Your API keys (not committed to git) |
 | `strategy_state.json` | Tracks pyramid counts and entry prices |
 | `trading_bot.log` | Full activity log for debugging |
 
