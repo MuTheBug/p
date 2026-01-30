@@ -257,12 +257,34 @@ class TradingModel:
 
         self.feature_names = feature_names
 
-        # Remove samples with NaN
-        valid_mask = ~(np.isnan(features).any(axis=1) | np.isnan(labels))
-        X = features[valid_mask]
-        y = labels[valid_mask]
+        # Handle NaN values - fill with column median instead of dropping rows
+        X = features.copy()
+        y = labels.copy()
+
+        # Fill NaN in features with column median
+        for i in range(X.shape[1]):
+            col = X[:, i]
+            nan_mask = np.isnan(col)
+            if nan_mask.any():
+                median_val = np.nanmedian(col)
+                if np.isnan(median_val):
+                    median_val = 0
+                X[nan_mask, i] = median_val
+
+        # Remove only samples with NaN labels (future returns we can't know)
+        valid_label_mask = ~np.isnan(y)
+        X = X[valid_label_mask]
+        y = y[valid_label_mask]
+
+        # Also remove any remaining NaN rows (shouldn't be many)
+        valid_feature_mask = ~np.isnan(X).any(axis=1)
+        X = X[valid_feature_mask]
+        y = y[valid_feature_mask]
 
         logger.info(f"Training samples: {len(X)}, Features: {X.shape[1]}")
+
+        if len(X) < 100:
+            raise ValueError(f"Not enough training samples: {len(X)}. Need at least 100.")
 
         # Class distribution
         unique, counts = np.unique(y, return_counts=True)

@@ -614,11 +614,12 @@ class FeatureEngineer:
         returns_dict = self.returns(close, [1, 3, 5, 10, 20])
         features.update(returns_dict)
 
-        # Higher timeframe context (using longer periods)
+        # Higher timeframe context (using moderate periods for day trading)
         features["sma_100"] = self.sma(close, 100)
-        features["sma_200"] = self.sma(close, 200)
         features["price_sma100_ratio"] = close / np.where(features["sma_100"] == 0, 1, features["sma_100"])
-        features["price_sma200_ratio"] = close / np.where(features["sma_200"] == 0, 1, features["sma_200"])
+
+        # Trend strength
+        features["trend_strength"] = (features["sma_10"] - features["sma_50"]) / np.where(features["sma_50"] == 0, 1, features["sma_50"])
 
         # Convert to arrays
         feature_names = list(features.keys())
