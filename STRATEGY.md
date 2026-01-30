@@ -8,6 +8,7 @@ A fully automated trend-following trading bot for Binance Futures that trades BT
 - [How It Works](#how-it-works)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Telegram Notifications](#telegram-notifications)
 - [Running the Bot](#running-the-bot)
 - [Strategy Parameters](#strategy-parameters)
 - [Risk Management](#risk-management)
@@ -215,6 +216,102 @@ config = StrategyConfig(
 
 ---
 
+## Telegram Notifications
+
+The bot can send real-time notifications to Telegram for all important events.
+
+### Setup
+
+1. **Create a Telegram Bot:**
+   - Open Telegram and search for `@BotFather`
+   - Send `/newbot` and follow the prompts
+   - Save the bot token (looks like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
+
+2. **Get Your Chat ID:**
+   - Search for `@userinfobot` on Telegram
+   - Send any message to get your chat ID (a number like `123456789`)
+
+3. **Configure the Bot:**
+   ```bash
+   export TELEGRAM_BOT_TOKEN="your_bot_token"
+   export TELEGRAM_CHAT_ID="your_chat_id"
+   ```
+
+### Notification Events
+
+| Event | Description |
+|-------|-------------|
+| **Startup** | Bot started, shows balance and symbols |
+| **Shutdown** | Bot stopped |
+| **Signal Detected** | Entry signal found (before execution) |
+| **Position Opened** | New position entered with details |
+| **Position Closed** | Position exited with P&L |
+| **Pyramid Added** | Added to winning position |
+| **Warning** | Balance too low, trading paused |
+| **Error** | Unexpected error occurred |
+
+### Example Notifications
+
+**Startup:**
+```
+🚀 Trading Bot Started
+
+🔴 LIVE
+Symbols: BTCUSDT, ETHUSDT, SOLUSDT
+Balance: $1,000.00 USDT
+Time: 2025-01-15 10:30:00 UTC
+
+Bot is now monitoring markets...
+```
+
+**Position Opened:**
+```
+🟢 New Position Opened
+
+Symbol: BTCUSDT
+Direction: 📈 LONG
+Quantity: 0.0100
+Entry Price: $50,000.00
+Notional: $500.00
+Risk: $10.00
+Stop Distance: $1,000.00
+
+Time: 2025-01-15 14:00:00 UTC
+```
+
+**Position Closed:**
+```
+🏁 Position Closed
+
+Symbol: BTCUSDT
+Side: LONG
+Quantity: 0.0100
+Entry: $50,000.00
+Exit: $52,500.00
+PnL: +$25.00 💚 (+5.00%)
+Reason: Trailing stop hit at $51,800.00
+
+💰 Time: 2025-01-15 18:30:00 UTC
+```
+
+### Command Line Options
+
+```bash
+# Disable notifications
+python main.py --no-telegram
+
+# Send notifications silently (no sound)
+python main.py --telegram-silent
+
+# Test Telegram connection
+python main.py --test-telegram
+
+# Pass credentials via command line
+python main.py --telegram-token "token" --telegram-chat-id "id"
+```
+
+---
+
 ## Running the Bot
 
 ### Basic Usage
@@ -376,17 +473,18 @@ python main.py --testnet --api-key "testnet_key" --api-secret "testnet_secret"
 
 ```
 p/
-├── main.py                      # Main entry point
+├── main.py                       # Main entry point
 ├── donchian_breakout_strategy.py # Core strategy logic
-├── binance_futures.py           # Binance API client
-├── .env.example                 # Credential template
-├── .gitignore                   # Git ignore rules
-├── README.md                    # API client documentation
-├── STRATEGY.md                  # This file
+├── telegram_notifier.py          # Telegram notification system
+├── binance_futures.py            # Binance API client
+├── .env.example                  # Credential template
+├── .gitignore                    # Git ignore rules
+├── README.md                     # API client documentation
+├── STRATEGY.md                   # This file
 │
 # Generated at runtime:
-├── trading_bot.log              # Activity log
-└── strategy_state.json          # Position state persistence
+├── trading_bot.log               # Activity log
+└── strategy_state.json           # Position state persistence
 ```
 
 ### Key Files
@@ -395,6 +493,7 @@ p/
 |------|---------|
 | `main.py` | CLI entry point, argument parsing, signal handling |
 | `donchian_breakout_strategy.py` | All strategy logic, indicators, position management |
+| `telegram_notifier.py` | Telegram notifications for all trading events |
 | `strategy_state.json` | Tracks pyramid counts and entry prices |
 | `trading_bot.log` | Full activity log for debugging |
 

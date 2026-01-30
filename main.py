@@ -10,6 +10,8 @@ Usage:
     # Using environment variables (recommended):
     export BINANCE_API_KEY="your_api_key"
     export BINANCE_API_SECRET="your_api_secret"
+    export TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
+    export TELEGRAM_CHAT_ID="your_telegram_chat_id"
     python main.py
 
     # Using command line arguments:
@@ -23,6 +25,9 @@ Usage:
 
     # Custom symbols:
     python main.py --symbols BTCUSDT ETHUSDT
+
+    # Disable Telegram notifications:
+    python main.py --no-telegram
 """
 
 import os
@@ -32,6 +37,7 @@ import logging
 from typing import Optional
 
 from donchian_breakout_strategy import DonchianBreakoutStrategy, StrategyConfig
+from telegram_notifier import TelegramNotifier, create_notifier_from_env
 
 # Configure logging
 logging.basicConfig(
@@ -64,6 +70,13 @@ def get_credentials():
         return None, None
 
     return api_key, api_secret
+
+
+def get_telegram_config():
+    """Get Telegram configuration from environment."""
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    return bot_token, chat_id
 
 
 def print_banner():
@@ -99,6 +112,14 @@ Examples:
   python main.py --testnet                Use testnet
   python main.py --once                   Single run (no loop)
   python main.py --symbols BTCUSDT        Trade only BTC
+  python main.py --no-telegram            Disable Telegram notifications
+
+Telegram Setup:
+  1. Create a bot with @BotFather on Telegram
+  2. Get your chat ID by messaging @userinfobot
+  3. Set environment variables:
+     export TELEGRAM_BOT_TOKEN="your_bot_token"
+     export TELEGRAM_CHAT_ID="your_chat_id"
         """
     )
     parser.add_argument(
@@ -143,6 +164,30 @@ Examples:
         default=3,
         help="Maximum leverage (default: 3)"
     )
+    # Telegram arguments
+    parser.add_argument(
+        "--telegram-token",
+        help="Telegram bot token (or set TELEGRAM_BOT_TOKEN env var)"
+    )
+    parser.add_argument(
+        "--telegram-chat-id",
+        help="Telegram chat ID (or set TELEGRAM_CHAT_ID env var)"
+    )
+    parser.add_argument(
+        "--no-telegram",
+        action="store_true",
+        help="Disable Telegram notifications"
+    )
+    parser.add_argument(
+        "--telegram-silent",
+        action="store_true",
+        help="Send Telegram messages silently (no notification sound)"
+    )
+    parser.add_argument(
+        "--test-telegram",
+        action="store_true",
+        help="Send a test Telegram message and exit"
+    )
 
     args = parser.parse_args()
 
@@ -163,6 +208,37 @@ Examples:
         )
         sys.exit(1)
 
+    # Set up Telegram notifier
+    notifier = None
+    if not args.no_telegram:
+        telegram_token = args.telegram_token or os.environ.get("TELEGRAM_BOT_TOKEN")
+        telegram_chat_id = args.telegram_chat_id or os.environ.get("TELEGRAM_CHAT_ID")
+
+        if telegram_token and telegram_chat_id:
+            notifier = TelegramNotifier(
+                bot_token=telegram_token,
+                chat_id=telegram_chat_id,
+                enabled=True,
+                silent=args.telegram_silent
+            )
+            logger.info("Telegram notifications enabled")
+
+            # Test telegram if requested
+            if args.test_telegram:
+                logger.info("Testing Telegram connection...")
+                if notifier.test_connection():
+                    logger.info("Telegram test message sent successfully!")
+                else:
+                    logger.error("Failed to send Telegram test message")
+                sys.exit(0)
+        else:
+            logger.info(
+                "Telegram not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID "
+                "environment variables to enable notifications."
+            )
+    else:
+        logger.info("Telegram notifications disabled via --no-telegram")
+
     # Create configuration
     config = StrategyConfig(
         symbols=args.symbols,
@@ -180,7 +256,8 @@ Examples:
         api_key=api_key,
         api_secret=api_secret,
         config=config,
-        testnet=args.testnet
+        testnet=args.testnet,
+        notifier=notifier
     )
 
     # Log configuration
@@ -196,6 +273,7 @@ Examples:
     logger.info(f"  Min balance for SOL: ${config.min_balance_for_sol}")
     logger.info(f"  Min balance for trading: ${config.min_balance_for_trading}")
     logger.info(f"  Testnet: {args.testnet}")
+    logger.info(f"  Telegram: {'Enabled' if notifier else 'Disabled'}")
 
     # Run strategy
     if args.once:

@@ -30,6 +30,7 @@ from binance_futures import (
     PositionSide,
     BinanceFuturesError
 )
+from telegram_notifier import TelegramNotifier
 
 # Configure logging
 logging.basicConfig(
@@ -710,7 +711,8 @@ class DonchianBreakoutStrategy:
         api_key: str,
         api_secret: str,
         config: Optional[StrategyConfig] = None,
-        testnet: bool = False
+        testnet: bool = False,
+        notifier: Optional[TelegramNotifier] = None
     ):
         self.client = BinanceFuturesClient(
             api_key=api_key,
@@ -720,12 +722,15 @@ class DonchianBreakoutStrategy:
         self.config = config or StrategyConfig()
         self.position_states: Dict[str, PositionState] = load_state()
         self.running = False
+        self.testnet = testnet
+        self.notifier = notifier
 
         logger.info("Strategy initialized")
         logger.info(f"Symbols: {self.config.symbols}")
         logger.info(f"Risk per trade: {self.config.risk_per_trade * 100}%")
         logger.info(f"Max leverage: {self.config.max_leverage}x")
         logger.info(f"Testnet: {testnet}")
+        logger.info(f"Telegram notifications: {'Enabled' if notifier else 'Disabled'}")
 
     def check_safety_rules(self, balance: float, symbol: str) -> Tuple[bool, str]:
         """
@@ -802,6 +807,17 @@ class DonchianBreakoutStrategy:
                     self.client, symbol, position,
                     f"Trailing stop hit at {trailing_stop:.2f}"
                 )
+                # Send exit notification
+                if self.notifier:
+                    self.notifier.send_exit(
+                        symbol=symbol,
+                        side=side,
+                        quantity=abs(qty),
+                        entry_price=entry_price,
+                        exit_price=data.current_price,
+                        pnl=unrealized_pnl,
+                        reason=f"Trailing stop hit at {trailing_stop:.2f}"
+                    )
                 # Remove from state
                 if symbol in self.position_states:
                     del self.position_states[symbol]
@@ -814,6 +830,17 @@ class DonchianBreakoutStrategy:
                     self.client, symbol, position,
                     f"Trailing stop hit at {trailing_stop:.2f}"
                 )
+                # Send exit notification
+                if self.notifier:
+                    self.notifier.send_exit(
+                        symbol=symbol,
+                        side=side,
+                        quantity=abs(qty),
+                        entry_price=entry_price,
+                        exit_price=data.current_price,
+                        pnl=unrealized_pnl,
+                        reason=f"Trailing stop hit at {trailing_stop:.2f}"
+                    )
                 # Remove from state
                 if symbol in self.position_states:
                     del self.position_states[symbol]
@@ -907,6 +934,17 @@ class DonchianBreakoutStrategy:
                 f"Total positions: {state.pyramid_count + 1}"
             )
 
+            # Send pyramid notification
+            if self.notifier:
+                self.notifier.send_pyramid(
+                    symbol=symbol,
+                    side=side,
+                    quantity=new_quantity,
+                    price=result["avg_price"],
+                    pyramid_number=state.pyramid_count,
+                    total_positions=state.pyramid_count + 1
+                )
+
     def check_for_new_entry(self, symbol: str, data: MarketData, balance: float) -> None:
         """Check for new entry signal."""
         # Clear any stale state
@@ -923,8 +961,13 @@ class DonchianBreakoutStrategy:
 
         logger.info(f"{symbol}: Entry signal detected - {reason}")
 
+        # Send signal notification
+        if self.notifier:
+            self.notifier.send_signal(symbol, signal, reason)
+
         # Calculate position size
         risk_amount = balance * self.config.risk_per_trade
+        stop_distance = data.atr * self.config.atr_stop_multiplier
         quantity = calculate_position_size(
             balance=balance,
             risk_amount=risk_amount,
@@ -943,7 +986,7 @@ class DonchianBreakoutStrategy:
         logger.info(
             f"{symbol}: Preparing {signal} entry - "
             f"Risk: ${risk_amount:.2f}, Quantity: {quantity}, "
-            f"Stop distance: {data.atr * self.config.atr_stop_multiplier:.2f}"
+            f"Stop distance: {stop_distance:.2f}"
         )
 
         # Open position
@@ -962,6 +1005,17 @@ class DonchianBreakoutStrategy:
             )
             save_state(self.position_states)
 
+            # Send entry notification
+            if self.notifier:
+                self.notifier.send_entry(
+                    symbol=symbol,
+                    side=signal,
+                    quantity=quantity,
+                    price=result["avg_price"],
+                    stop_distance=stop_distance,
+                    risk_amount=risk_amount
+                )
+
     def run_once(self) -> None:
         """Run one iteration of the strategy."""
         logger.info("=" * 60)
@@ -979,6 +1033,11 @@ class DonchianBreakoutStrategy:
                 f"Balance ${balance:.2f} below minimum ${self.config.min_balance_for_trading}. "
                 "Bot paused."
             )
+            if self.notifier:
+                self.notifier.send_warning(
+                    f"Balance ${balance:.2f} below minimum ${self.config.min_balance_for_trading}. "
+                    "Bot paused - no new trades."
+                )
             return
 
         # Process each symbol
@@ -987,6 +1046,8 @@ class DonchianBreakoutStrategy:
                 self.process_symbol(symbol, balance)
             except Exception as e:
                 logger.error(f"{symbol}: Unexpected error: {e}")
+                if self.notifier:
+                    self.notifier.send_error(symbol, str(e))
 
         logger.info("=" * 60)
 
@@ -994,6 +1055,18 @@ class DonchianBreakoutStrategy:
         """Run the strategy loop forever."""
         self.running = True
         logger.info("Starting strategy loop...")
+
+        # Send startup notification
+        if self.notifier:
+            try:
+                balance = get_usdt_balance(self.client)
+                self.notifier.send_startup(
+                    symbols=self.config.symbols,
+                    balance=balance,
+                    testnet=self.testnet
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send startup notification: {e}")
 
         while self.running:
             try:
@@ -1004,10 +1077,19 @@ class DonchianBreakoutStrategy:
                 break
             except Exception as e:
                 logger.error(f"Unexpected error in main loop: {e}")
+                if self.notifier:
+                    self.notifier.send_error("SYSTEM", f"Main loop error: {e}")
 
             if self.running:
                 logger.info(f"Sleeping for {self.config.check_interval_seconds} seconds...")
                 time.sleep(self.config.check_interval_seconds)
+
+        # Send shutdown notification
+        if self.notifier:
+            try:
+                self.notifier.send_shutdown("Bot stopped")
+            except Exception:
+                pass
 
         logger.info("Strategy stopped.")
 
