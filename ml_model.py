@@ -520,22 +520,29 @@ class TradingModel:
             if np.isnan(probabilities[cls]) or np.isinf(probabilities[cls]):
                 probabilities[cls] = 0.33
 
-        # Determine signal
-        max_prob = max(probabilities.values())
-        max_class = max(probabilities, key=probabilities.get)
+        # Determine signal - use directional logic
+        # Compare long vs short directly, don't just pick max class
+        long_prob = probabilities['long']
+        short_prob = probabilities['short']
+        neutral_prob = probabilities['neutral']
 
-        if max_prob >= self.config.signal_threshold:
-            if max_class == 'long':
-                signal = 1
-            elif max_class == 'short':
-                signal = -1
-            else:
-                signal = 0
+        # Directional threshold - if one direction is clearly stronger
+        directional_edge = 0.05  # 5% edge needed
+        min_directional_prob = 0.30  # At least 30% confidence in direction
+
+        if long_prob > short_prob + directional_edge and long_prob >= min_directional_prob:
+            signal = 1
+            confidence = long_prob
+        elif short_prob > long_prob + directional_edge and short_prob >= min_directional_prob:
+            signal = -1
+            confidence = short_prob
         else:
             signal = 0
+            confidence = neutral_prob
 
-        # Confidence is the probability spread - ensure not NaN
-        confidence = max_prob if not np.isnan(max_prob) else 0.33
+        # Ensure confidence is not NaN
+        if np.isnan(confidence):
+            confidence = 0.33
 
         return Prediction(
             signal=signal,
