@@ -262,6 +262,11 @@ def main():
         help="Train ML model only (no trading)"
     )
     parser.add_argument(
+        "--retrain",
+        action="store_true",
+        help="Force retraining by deleting existing models"
+    )
+    parser.add_argument(
         "--testnet",
         action="store_true",
         help="Use testnet mode (for testing)"
@@ -277,6 +282,14 @@ def main():
     # Setup
     setup_logging(args.verbose)
     logger = logging.getLogger(__name__)
+
+    # Handle retrain flag - delete existing models
+    if args.retrain:
+        import shutil
+        models_dir = Path("models")
+        if models_dir.exists():
+            shutil.rmtree(models_dir)
+            logger.info("Deleted existing models - will retrain from scratch")
 
     # Handle auto-trade flag
     if args.signal_only:
