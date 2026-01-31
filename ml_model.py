@@ -55,12 +55,12 @@ class ModelConfig:
     # Training parameters
     train_test_split: float = 0.2
     validation_split: float = 0.1
-    label_threshold: float = 0.01  # 1% move for signal
+    label_threshold: float = 0.005  # 0.5% move for signal (more active trading)
     forward_period: int = 5  # Bars to look ahead for labeling
 
     # Prediction parameters
-    signal_threshold: float = 0.6  # Probability threshold for signal
-    min_confidence: float = 0.55  # Minimum confidence to act
+    signal_threshold: float = 0.45  # Probability threshold for signal (lowered for more trades)
+    min_confidence: float = 0.40  # Minimum confidence to act
 
 
 @dataclass

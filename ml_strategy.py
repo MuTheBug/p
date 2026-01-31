@@ -88,8 +88,8 @@ class BotConfig:
     model_retrain_hours: int = 24  # Retrain model every N hours
     min_training_samples: int = 1000
     sequence_length: int = 60
-    signal_threshold: float = 0.6
-    min_confidence: float = 0.55
+    signal_threshold: float = 0.45  # Lowered for more active trading
+    min_confidence: float = 0.40  # Lowered for more active trading
 
     # Risk management
     risk_per_trade_pct: float = 1.0  # % of account per trade

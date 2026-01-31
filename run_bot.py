@@ -124,8 +124,8 @@ def run_ml_strategy(args, client, notifier):
         take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "3.0")),
         use_atr_stops=os.getenv("USE_ATR_STOPS", "true").lower() == "true",
         scan_interval_seconds=int(os.getenv("SCAN_INTERVAL", "60")),
-        signal_threshold=float(os.getenv("SIGNAL_THRESHOLD", "0.6")),
-        min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.55"))
+        signal_threshold=float(os.getenv("SIGNAL_THRESHOLD", "0.45")),
+        min_confidence=float(os.getenv("MIN_CONFIDENCE", "0.40"))
     )
 
     bot = MLTradingBot(
