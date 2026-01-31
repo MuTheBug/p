@@ -442,6 +442,9 @@ class TradingModel:
         if features.ndim == 1:
             features = features.reshape(1, -1)
 
+        # Handle NaN values - fill with 0 (will be normalized anyway)
+        features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
+
         # Normalize
         if hasattr(self, 'scaler') and self.scaler is not None:
             features_scaled = self.scaler.transform(features)
@@ -450,12 +453,17 @@ class TradingModel:
         else:
             features_scaled = features
 
+        # Handle any NaN from normalization
+        features_scaled = np.nan_to_num(features_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+
         model_predictions = {}
         probabilities = {'short': 0, 'neutral': 0, 'long': 0}
 
         # XGBoost prediction
         if self.xgb_model is not None:
             xgb_proba = self.xgb_model.predict_proba(features_scaled)[0]
+            # Sanitize XGBoost output
+            xgb_proba = np.nan_to_num(xgb_proba, nan=0.33, posinf=0.33, neginf=0.33)
             model_predictions['xgb'] = {
                 'short': float(xgb_proba[0]),
                 'neutral': float(xgb_proba[1]),
@@ -467,6 +475,9 @@ class TradingModel:
             if sequence_data.ndim == 2:
                 sequence_data = sequence_data.reshape(1, *sequence_data.shape)
 
+            # Handle NaN values in sequence data
+            sequence_data = np.nan_to_num(sequence_data, nan=0.0, posinf=0.0, neginf=0.0)
+
             # Normalize sequence
             if hasattr(self, 'scaler') and self.scaler is not None:
                 seq_scaled = np.zeros_like(sequence_data)
@@ -477,7 +488,12 @@ class TradingModel:
             else:
                 seq_scaled = sequence_data
 
+            # Handle NaN after normalization
+            seq_scaled = np.nan_to_num(seq_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+
             lstm_proba = self.lstm_model.predict(seq_scaled, verbose=0)[0]
+            # Sanitize LSTM output
+            lstm_proba = np.nan_to_num(lstm_proba, nan=0.33, posinf=0.33, neginf=0.33)
             model_predictions['lstm'] = {
                 'short': float(lstm_proba[0]),
                 'neutral': float(lstm_proba[1]),
@@ -499,6 +515,11 @@ class TradingModel:
             for cls in probabilities:
                 probabilities[cls] /= total_weight
 
+        # Sanitize final probabilities - ensure no NaN
+        for cls in probabilities:
+            if np.isnan(probabilities[cls]) or np.isinf(probabilities[cls]):
+                probabilities[cls] = 0.33
+
         # Determine signal
         max_prob = max(probabilities.values())
         max_class = max(probabilities, key=probabilities.get)
@@ -513,8 +534,8 @@ class TradingModel:
         else:
             signal = 0
 
-        # Confidence is the probability spread
-        confidence = max_prob
+        # Confidence is the probability spread - ensure not NaN
+        confidence = max_prob if not np.isnan(max_prob) else 0.33
 
         return Prediction(
             signal=signal,
